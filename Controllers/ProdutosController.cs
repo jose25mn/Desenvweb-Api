@@ -16,17 +16,29 @@ public class ProdutosController : ControllerBase
         _context = context;
     }
 
+    // =====================================================================
+    // GET /api/produtos — agora inclui a Categoria de cada produto
+    // =====================================================================
     [HttpGet]
     public async Task<ActionResult<IEnumerable<Produto>>> GetProdutos()
     {
-        var produtos = await _context.Produtos.ToListAsync();
+        var produtos = await _context.Produtos
+            .Include(p => p.Categoria)
+            .ToListAsync();
+
         return Ok(produtos);
     }
 
+    // =====================================================================
+    // GET /api/produtos/5 — inclui a Categoria do produto
+    // =====================================================================
     [HttpGet("{id}")]
     public async Task<ActionResult<Produto>> GetProduto(int id)
     {
-        var produto = await _context.Produtos.FindAsync(id);
+        var produto = await _context.Produtos
+            .Include(p => p.Categoria)
+            .Include(p => p.DetalheProduto)
+            .FirstOrDefaultAsync(p => p.Id == id);
 
         if (produto == null)
         {
@@ -65,6 +77,7 @@ public class ProdutosController : ControllerBase
         produtoExistente.Descricao = produto.Descricao;
         produtoExistente.Preco = produto.Preco;
         produtoExistente.Quantidade = produto.Quantidade;
+        produtoExistente.CategoriaId = produto.CategoriaId;
 
         await _context.SaveChangesAsync();
         return NoContent();
