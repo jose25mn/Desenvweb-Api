@@ -1,92 +1,51 @@
-// Program.cs
-
-using Microsoft.EntityFrameworkCore;
-using MeuCrud.Api.Data;
-
-// =====================================================================
-// BUILDER — fase de configuração
-// Aqui registramos todos os serviços que a aplicação vai usar.
-// =====================================================================
 var builder = WebApplication.CreateBuilder(args);
 
-// Registra os Controllers no sistema de Injeção de Dependência.
-// Sem isso, o .NET não sabe que existem Controllers na aplicação.
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        // ReferenceHandler.IgnoreCycles instrui o serializador JSON a
-        // ignorar referências circulares em vez de lançar uma exceção.
-        //
-        // Quando detecta um ciclo (Produto → Categoria → Produtos → ...),
-        // ele simplesmente para de serializar naquele ponto, colocando null.
-        //
-        // Resultado no JSON:
-        // {
-        //   "id": 1,
-        //   "nome": "Notebook",
-        //   "categoriaId": 1,
-        //   "categoria": {
-        //     "id": 1,
-        //     "nome": "Eletrônicos",
-        //     "produtos": null  ← parou aqui, evitando o loop
-        //   }
-        // }
-        options.JsonSerializerOptions.ReferenceHandler =
-            System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
-    });
+// Configurar a porta usando a variável de ambiente PORT do Render
+var port = Environment.GetEnvironmentVariable("PORT") ?? "80";
+builder.WebHost.UseUrls($"http://+:{port}");
 
-// Registra o AppDbContext no sistema de Injeção de Dependência.
-// Isso permite que os Controllers recebam o AppDbContext automaticamente
-// no construtor (isso é chamado de Injeção de Dependência).
-//
-// options.UseNpgsql(...) diz ao EF para usar o PostgreSQL como banco.
-// builder.Configuration.GetConnectionString("DefaultConnection") lê
-// a connection string do appsettings.json.
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-// Adiciona o Swagger/OpenAPI — interface web para testar a API.
-// AddEndpointsApiExplorer() descobre os endpoints disponíveis.
-// AddSwaggerGen() gera a documentação interativa da API.
+// Restante da configuração...
+builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Configura CORS (Cross-Origin Resource Sharing).
-// Isso permite que o frontend React (que roda em outra porta)
-// faça requisições para a API sem ser bloqueado pelo navegador.
+// CORS - Permitir o frontend acessar o backend
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("PermitirTudo", policy =>
+    options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()   // Permite qualquer origem (domínio/porta)
-              .AllowAnyMethod()   // Permite GET, POST, PUT, DELETE, etc.
-              .AllowAnyHeader();  // Permite qualquer cabeçalho HTTP
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
     });
 });
 
-// =====================================================================
-// APP — fase de execução
-// Aqui configuramos o pipeline de middlewares (o que acontece com cada
-// requisição HTTP antes de chegar no Controller).
-// =====================================================================
 var app = builder.Build();
 
-// Ativa o Swagger apenas no ambiente de desenvolvimento.
-// Em produção, a documentação seria protegida ou desativada.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// Habilitar Swagger em todos os ambientes (útil para verificar se o deploy funcionou)
+app.UseSwagger();
+app.UseSwaggerUI();
 
-// Ativa o CORS com a política que definimos acima.
-// IMPORTANTE: deve vir ANTES do MapControllers().
-app.UseCors("PermitirTudo");
-
-// Ativa o roteamento de requisições para os Controllers.
-// É aqui que o .NET olha para a URL da requisição e decide
-// qual Controller e qual método deve ser chamado.
+app.UseCors("AllowAll");
+app.UseAuthorization();
 app.MapControllers();
 
-// Inicia a aplicação e fica escutando requisições HTTP.
 app.Run();
+Ajuste no Dockerfile:
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY *.csproj ./
+RUN dotnet restore
+COPY . .
+RUN dotnet publish -c Release -o /app/publish
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+COPY --from=build /app/publish .
+
+# O Render define a variável PORT automaticamente
+# O Program.cs já lê essa variável
+EXPOSE 80
+
+ENTRYPOINT ["dotnet", "MeuBackend.dll"]
